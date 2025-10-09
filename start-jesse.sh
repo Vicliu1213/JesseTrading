@@ -26,15 +26,8 @@ if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     exit 1
 fi
 
-echo "Checking if port 5000 is available..."
-if lsof -ti:5000 > /dev/null; then
-    echo "Port 5000 is in use, killing existing processes..."
-    lsof -ti:5000 | xargs kill -9 2>/dev/null || true
-    sleep 2
-fi
-
 echo "Starting Jesse Trading Framework..."
 echo "Dashboard will be available at: http://localhost:5000"
 
-# 启动 Jesse 并绑定到所有接口
-jesse run --host 0.0.0.0 --port 5000un
+# 启动 Jesse（默认绑定到 0.0.0.0:5000）
+jesse run
