@@ -1,0 +1,39 @@
+modules = ["python-3.11", "postgresql-17"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+packages = ["redis"]
+
+[[ports]]
+localPort = 6379
+externalPort = 80
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Jesse Trading Framework"
+
+[[workflows.workflow]]
+name = "Jesse Trading Framework"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash start-jesse.sh"
+waitForPort = 5000
