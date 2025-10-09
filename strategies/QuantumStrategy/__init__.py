@@ -1,6 +1,10 @@
 from jesse.strategies import Strategy
 import jesse.indicators as ta
 from jesse import utils
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from config.bitget_config import BitgetConfig
 
 class QuantumStrategy(Strategy):
     """
@@ -92,14 +96,25 @@ class QuantumStrategy(Strategy):
     
     def calculate_position_size(self):
         """
-        计算仓位大小（风险管理）
+        计算仓位大小（风险管理）- Bitget 优化版
         """
+        # 获取 Bitget 交易对配置
+        pair_config = BitgetConfig.get_pair_config(self.symbol)
+        min_order_size = pair_config['min_order_size']
+        
         # 使用账户资金的 1% 作为每笔交易的风险
         risk_per_trade = self.capital * 0.01
         
         # 基于止损距离计算仓位
         stop_loss_distance = self.price * 0.02  # 2% 止损
-        qty = risk_per_trade / stop_loss_distance
+        calculated_qty = risk_per_trade / stop_loss_distance
+        
+        # 确保满足 Bitget 最小订单要求
+        qty = max(calculated_qty, min_order_size)
+        
+        # 根据 Bitget 精度要求调整
+        precision = pair_config['precision']
+        qty = round(qty, precision)
         
         return qty
     

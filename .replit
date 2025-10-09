@@ -16,7 +16,7 @@ localPort = 6379
 externalPort = 3000
 
 [workflows]
-runButton = "Project"
+runButton = "Start Bitget Jesse"
 
 [[workflows.workflow]]
 name = "Project"
@@ -38,3 +38,12 @@ outputType = "webview"
 task = "shell.exec"
 args = "bash start-jesse.sh"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "Start Bitget Jesse"
+author = 34406806
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash start-jesse.sh"
