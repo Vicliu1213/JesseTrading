@@ -1,0 +1,688 @@
+# quant-trader
+# ==================== Jesse数据库配置整合 ====================
+class JesseDatabaseConfig:
+    """Jesse交易框架数据库配置"""
+    
+    # Jesse支持的5个主要数据库URL配置
+    DATABASE_URLS = {
+        'sqlite': {
+            'default': 'sqlite:///jesse.db',
+            'trades': 'sqlite:///jesse_trades.db',
+            'candles': 'sqlite:///jesse_candles.db',
+            'logs': 'sqlite:///jesse_logs.db',
+            'metrics': 'sqlite:///jesse_metrics.db'
+        },
+        'postgresql': {
+            'default': 'postgresql://username:password@localhost:5432/jesse',
+            'trades': 'postgresql://username:password@localhost:5432/jesse_trades',
+            'candles': 'postgresql://username:password@localhost:5432/jesse_candles',
+            'logs': 'postgresql://username:password@localhost:5432/jesse_logs',
+            'metrics': 'postgresql://username:password@localhost:5432/jesse_metrics'
+        },
+        'mysql': {
+            'default': 'mysql://username:password@localhost:3306/jesse',
+            'trades': 'mysql://username:password@localhost:3306/jesse_trades',
+            'candles': 'mysql://username:password@localhost:3306/jesse_candles',
+            'logs': 'mysql://username:password@localhost:3306/jesse_logs',
+            'metrics': 'mysql://username:password@localhost:3306/jesse_metrics'
+        },
+        'mongodb': {
+            'default': 'mongodb://localhost:27017/jesse',
+            'trades': 'mongodb://localhost:27017/jesse_trades',
+            'candles': 'mongodb://localhost:27017/jesse_candles',
+            'logs': 'mongodb://localhost:27017/jesse_logs',
+            'metrics': 'mongodb://localhost:27017/jesse_metrics'
+        },
+        'redis': {
+            'default': 'redis://localhost:6379/0',
+            'trades': 'redis://localhost:6379/1',
+            'candles': 'redis://localhost:6379/2',
+            'logs': 'redis://localhost:6379/3',
+            'metrics': 'redis://localhost:6379/4'
+        }
+    }
+    
+    def __init__(self, db_type='sqlite', custom_urls=None):
+        self.db_type = db_type
+        self.custom_urls = custom_urls or {}
+        self.connections = {}
+        
+    def get_database_url(self, db_name='default'):
+        """获取数据库URL"""
+        if db_name in self.custom_urls:
+            return self.custom_urls[db_name]
+        
+        if self.db_type in self.DATABASE_URLS:
+            return self.DATABASE_URLS[self.db_type].get(db_name, '')
+        
+        raise ValueError(f"不支持的数据库类型: {self.db_type}")
+    
+    def get_all_urls(self):
+        """获取所有5个数据库的URL"""
+        return {
+            'default': self.get_database_url('default'),
+            'trades': self.get_database_url('trades'),
+            'candles': self.get_database_url('candles'),
+            'logs': self.get_database_url('logs'),
+            'metrics': self.get_database_url('metrics')
+        }
+
+# ==================== Jesse数据库管理器 ====================
+class JesseDatabaseManager:
+    """Jesse数据库管理器和连接池"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.connections = {}
+        self.setup_databases()
+    
+    def setup_databases(self):
+        """设置所有数据库连接"""
+        urls = self.config.get_all_urls()
+        
+        for db_name, url in urls.items():
+            try:
+                if url.startswith('sqlite'):
+                    self.connections[db_name] = self._connect_sqlite(url)
+                elif url.startswith('postgresql'):
+                    self.connections[db_name] = self._connect_postgresql(url)
+                elif url.startswith('mysql'):
+                    self.connections[db_name] = self._connect_mysql(url)
+                elif url.startswith('mongodb'):
+                    self.connections[db_name] = self._connect_mongodb(url)
+                elif url.startswith('redis'):
+                    self.connections[db_name] = self._connect_redis(url)
+                
+                print(f"✅ {db_name} 数据库连接成功: {url.split('@')[-1]}")
+                
+            except Exception as e:
+                print(f"❌ {db_name} 数据库连接失败: {e}")
+    
+    def _connect_sqlite(self, url):
+        """连接SQLite数据库"""
+        import sqlite3
+        from pathlib import Path
+        
+        # 提取数据库文件路径
+        db_path = url.replace('sqlite:///', '')
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        return sqlite3.connect(db_path, check_same_thread=False)
+    
+    def _connect_postgresql(self, url):
+        """连接PostgreSQL数据库"""
+        try:
+            import psycopg2
+            return psycopg2.connect(url)
+        except ImportError:
+            raise ImportError("请安装 psycopg2: pip install psycopg2-binary")
+    
+    def _connect_mysql(self, url):
+        """连接MySQL数据库"""
+        try:
+            import pymysql
+            return pymysql.connect(url)
+        except ImportError:
+            raise ImportError("请安装 pymysql: pip install pymysql")
+    
+    def _connect_mongodb(self, url):
+        """连接MongoDB数据库"""
+        try:
+            from pymongo import MongoClient
+            return MongoClient(url)
+        except ImportError:
+            raise ImportError("请安装 pymongo: pip install pymongo")
+    
+    def _connect_redis(self, url):
+        """连接Redis数据库"""
+        try:
+            import redis
+            return redis.from_url(url)
+        except ImportError:
+            raise ImportError("请安装 redis: pip install redis")
+
+# ==================== Jesse数据模型 ====================
+class JesseDataModels:
+    """Jesse数据模型定义"""
+    
+    @staticmethod
+    def create_tables_sqlite(connection):
+        """创建SQLite数据表"""
+        cursor = connection.cursor()
+        
+        # 交易记录表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                side TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                price REAL NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                strategy TEXT,
+                profit_loss REAL DEFAULT 0,
+                fees REAL DEFAULT 0
+            )
+        ''')
+        
+        # K线数据表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS candles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                open REAL NOT NULL,
+                high REAL NOT NULL,
+                low REAL NOT NULL,
+                close REAL NOT NULL,
+                volume REAL NOT NULL,
+                timestamp DATETIME NOT NULL,
+                UNIQUE(symbol, timeframe, timestamp)
+            )
+        ''')
+        
+        # 日志表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                module TEXT
+            )
+        ''')
+        
+        # 指标表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                metric_name TEXT NOT NULL,
+                metric_value REAL NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                strategy TEXT
+            )
+        ''')
+        
+        connection.commit()
+    
+    @staticmethod
+    def create_tables_postgresql(connection):
+        """创建PostgreSQL数据表"""
+        # 类似SQLite的实现，但使用PostgreSQL语法
+        pass
+
+# ==================== Jesse数据访问层 ====================
+class JesseDataAccess:
+    """Jesse数据访问层"""
+    
+    def __init__(self, db_manager):
+        self.db = db_manager
+    
+    def save_trade(self, trade_data):
+        """保存交易记录"""
+        conn = self.db.connections.get('trades')
+        if not conn:
+            return False
+        
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO trades (symbol, side, quantity, price, strategy, profit_loss, fees)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                trade_data['symbol'],
+                trade_data['side'],
+                trade_data['quantity'],
+                trade_data['price'],
+                trade_data.get('strategy', ''),
+                trade_data.get('profit_loss', 0),
+                trade_data.get('fees', 0)
+            ))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"保存交易记录失败: {e}")
+            return False
+    
+    def save_candle(self, candle_data):
+        """保存K线数据"""
+        conn = self.db.connections.get('candles')
+        if not conn:
+            return False
+        
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO candles 
+                (symbol, timeframe, open, high, low, close, volume, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                candle_data['symbol'],
+                candle_data['timeframe'],
+                candle_data['open'],
+                candle_data['high'],
+                candle_data['low'],
+                candle_data['close'],
+                candle_data['volume'],
+                candle_data['timestamp']
+            ))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"保存K线数据失败: {e}")
+            return False
+    
+    def get_recent_candles(self, symbol, timeframe, limit=100):
+        """获取最近的K线数据"""
+        conn = self.db.connections.get('candles')
+        if not conn:
+            return []
+        
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM candles 
+                WHERE symbol = ? AND timeframe = ?
+                ORDER BY timestamp DESC LIMIT ?
+            ''', (symbol, timeframe, limit))
+            
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"获取K线数据失败: {e}")
+            return []
+    
+    def log_message(self, level, message, module=""):
+        """记录日志"""
+        conn = self.db.connections.get('logs')
+        if not conn:
+            return False
+        
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO logs (level, message, module)
+                VALUES (?, ?, ?)
+            ''', (level, message, module))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"记录日志失败: {e}")
+            return False
+    
+    def save_metric(self, metric_name, metric_value, strategy=""):
+        """保存指标数据"""
+        conn = self.db.connections.get('metrics')
+        if not conn:
+            return False
+        
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO metrics (metric_name, metric_value, strategy)
+                VALUES (?, ?, ?)
+            ''', (metric_name, metric_value, strategy))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"保存指标失败: {e}")
+            return False
+
+# ==================== 量子交易引擎与Jesse整合 ====================
+class QuantumJesseIntegration:
+    """量子交易引擎与Jesse框架的整合"""
+    
+    def __init__(self, jesse_config=None, quantum_engine=None):
+        self.jesse_config = jesse_config or JesseDatabaseConfig()
+        self.db_manager = JesseDatabaseManager(self.jesse_config)
+        self.data_access = JesseDataAccess(self.db_manager)
+        self.quantum_engine = quantum_engine or QuantumGenesisHyperEngine()
+        
+        # 初始化数据库表
+        self._initialize_database()
+    
+    def _initialize_database(self):
+        """初始化数据库表结构"""
+        for db_name, conn in self.db_manager.connections.items():
+            if db_name == 'trades':
+                JesseDataModels.create_tables_sqlite(conn)
+    
+    def run_quantum_strategy(self, symbol, timeframe):
+        """运行量子策略并与Jesse集成"""
+        try:
+            # 1. 从Jesse数据库获取市场数据
+            market_data = self.get_market_data_from_jesse(symbol, timeframe)
+            
+            # 2. 使用量子引擎处理数据
+            quantum_signal = self.quantum_engine.process_market_data(market_data)
+            
+            # 3. 执行交易决策
+            if quantum_signal.get('action') != 'hold':
+                trade_result = self.execute_trade(symbol, quantum_signal)
+                
+                # 4. 保存交易记录到Jesse数据库
+                self.data_access.save_trade({
+                    'symbol': symbol,
+                    'side': trade_result['side'],
+                    'quantity': trade_result['quantity'],
+                    'price': trade_result['price'],
+                    'strategy': 'quantum_enhanced',
+                    'profit_loss': trade_result.get('profit_loss', 0)
+                })
+                
+                # 5. 记录指标
+                self.data_access.save_metric('quantum_signal_strength', 
+                                           quantum_signal.get('confidence', 0),
+                                           'quantum_strategy')
+            
+            # 6. 记录日志
+            self.data_access.log_message('INFO', 
+                                      f'量子策略执行: {symbol} {timeframe}',
+                                      'QuantumJesseIntegration')
+            
+            return quantum_signal
+            
+        except Exception as e:
+            self.data_access.log_message('ERROR', f'量子策略执行失败: {str(e)}')
+            return {'action': 'hold', 'error': str(e)}
+    
+    def get_market_data_from_jesse(self, symbol, timeframe, limit=100):
+        """从Jesse数据库获取市场数据"""
+        candles = self.data_access.get_recent_candles(symbol, timeframe, limit)
+        
+        if not candles:
+            return self._get_fallback_data(symbol)
+        
+        # 转换为pandas DataFrame格式
+        import pandas as pd
+        df = pd.DataFrame(candles, columns=['id', 'symbol', 'timeframe', 'open', 
+                                          'high', 'low', 'close', 'volume', 'timestamp'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df.set_index('timestamp', inplace=True)
+        
+        return df
+    
+    def _get_fallback_data(self, symbol):
+        """备选数据获取方法"""
+        # 如果Jesse数据库没有数据，从其他来源获取
+        print(f"Jesse数据库中没有{symbol}的数据，使用模拟数据")
+        return self._generate_sample_data()
+    
+    def execute_trade(self, symbol, signal):
+        """执行交易（模拟实现）"""
+        # 这里应该连接到实际的交易所API
+        # 目前使用模拟执行
+        
+        return {
+            'symbol': symbol,
+            'side': signal['action'],
+            'quantity': 0.01,  # 固定数量
+            'price': self._get_current_price(symbol),
+            'timestamp': pd.Timestamp.now(),
+            'status': 'executed'
+        }
+    
+    def _get_current_price(self, symbol):
+        """获取当前价格（模拟实现）"""
+        # 这里应该从交易所API获取实时价格
+        return 50000.0  # 模拟BTC价格
+    
+    def _generate_sample_data(self):
+        """生成样本数据"""
+        import pandas as pd
+        dates = pd.date_range('2023-01-01', periods=100, freq='1H')
+        prices = 50000 + np.cumsum(np.random.randn(100) * 100)
+        
+        return pd.DataFrame({
+            'close': prices,
+            'open': prices - np.random.rand(100) * 50,
+            'high': prices + np.random.rand(100) * 50,
+            'low': prices - np.random.rand(100) * 50,
+            'volume': np.random.randint(1000, 10000, 100)
+        }, index=dates)
+
+# ==================== 自动化Jesse配置生成 ====================
+class JesseConfigGenerator:
+    """Jesse配置自动生成器"""
+    
+    @staticmethod
+    def generate_config_file(db_type='sqlite', custom_settings=None):
+        """生成Jesse配置文件"""
+        
+        config_template = """
+# Jesse配置文件 - 自动生成
+# 生成时间: {timestamp}
+
+import os
+from jesse import utils
+
+# 数据库配置
+config = {{
+    'databases': {{
+        'default': '{default_url}',
+        'trades': '{trades_url}', 
+        'candles': '{candles_url}',
+        'logs': '{logs_url}',
+        'metrics': '{metrics_url}'
+    }},
+    
+    # 交易所配置
+    'exchanges': {{
+        'Binance': {{
+            'api_key': os.getenv('BINANCE_API_KEY', ''),
+            'api_secret': os.getenv('BINANCE_API_SECRET', ''),
+            'sandbox': False
+        }},
+        'OKX': {{
+            'api_key': os.getenv('OKX_API_KEY', ''),
+            'api_secret': os.getenv('OKX_API_SECRET', ''),
+            'password': os.getenv('OKX_PASSWORD', ''),
+            'sandbox': False
+        }}
+    }},
+    
+    # 交易对配置
+    'symbols': ['BTC-USDT', 'ETH-USDT', 'BNB-USDT'],
+    
+    # 时间框架配置
+    'timeframes': ['1m', '5m', '15m', '1h', '4h', '1d'],
+    
+    # 策略配置
+    'strategies': {{
+        'quantum_enhanced': {{
+            'class': 'strategies.QuantumEnhancedStrategy',
+            'config': {{
+                'qubits': 7,
+                'quantum_backend': 'qasm_simulator',
+                'risk_per_trade': 0.02,
+                'max_leverage': 3
+            }}
+        }}
+    }},
+    
+    # 路由配置
+    'routes': [
+        # 示例路由
+        {{
+            'exchange': 'Binance',
+            'symbol': 'BTC-USDT',
+            'timeframe': '5m',
+            'strategy': 'quantum_enhanced',
+            'config': {{
+                'risk_per_trade': 0.01
+            }}
+        }}
+    ],
+    
+    # 额外配置
+    'extra': {custom_settings}
+}}
+
+# 环境变量配置
+env_config = {{
+    'DATA_DIR': './data',
+    'LOGS_DIR': './logs',
+    'STORAGE_DIR': './storage'
+}}
+
+def get_config():
+    return config
+
+def get_env_config():
+    return env_config
+        """
+        
+        db_config = JesseDatabaseConfig(db_type)
+        urls = db_config.get_all_urls()
+        
+        custom_settings = custom_settings or {
+            'quantum_integration': True,
+            'auto_optimize': True,
+            'real_time_monitoring': True
+        }
+        
+        from datetime import datetime
+        return config_template.format(
+            timestamp=datetime.now().isoformat(),
+            default_url=urls['default'],
+            trades_url=urls['trades'],
+            candles_url=urls['candles'],
+            logs_url=urls['logs'],
+            metrics_url=urls['metrics'],
+            custom_settings=custom_settings
+        )
+
+# ==================== 使用示例和测试 ====================
+def demonstrate_jesse_integration():
+    """演示Jesse集成功能"""
+    
+    print("=== Jesse量子交易集成演示 ===")
+    
+    # 1. 创建Jesse数据库配置
+    jesse_config = JesseDatabaseConfig('sqlite')
+    urls = jesse_config.get_all_urls()
+    
+    print("📊 Jesse数据库URL配置:")
+    for db_name, url in urls.items():
+        print(f"  {db_name}: {url}")
+    
+    # 2. 生成配置文件
+    config_content = JesseConfigGenerator.generate_config_file()
+    print("\n📝 生成的配置文件示例:")
+    print(config_content[:500] + "...")  # 只显示前500字符
+    
+    # 3. 创建集成实例
+    quantum_engine = QuantumGenesisHyperEngine()
+    integration = QuantumJesseIntegration(jesse_config, quantum_engine)
+    
+    # 4. 测试量子策略执行
+    print("\n🚀 测试量子策略执行...")
+    result = integration.run_quantum_strategy('BTC-USDT', '5m')
+    print(f"策略结果: {result}")
+    
+    return integration
+
+# ==================== 快速启动模板 ====================
+def create_quantum_jesse_project(project_name="quantum_jesse_trader"):
+    """创建完整的量子Jesse交易项目"""
+    
+    import os
+    import shutil
+    
+    project_dir = f"./{project_name}"
+    
+    # 创建项目目录结构
+    dirs = [
+        project_dir,
+        f"{project_dir}/strategies",
+        f"{project_dir}/config",
+        f"{project_dir}/data",
+        f"{project_dir}/logs",
+        f"{project_dir}/tests"
+    ]
+    
+    for dir_path in dirs:
+        os.makedirs(dir_path, exist_ok=True)
+    
+    # 生成配置文件
+    config_content = JesseConfigGenerator.generate_config_file()
+    with open(f"{project_dir}/config/jesse_config.py", "w") as f:
+        f.write(config_content)
+    
+    # 生成主程序文件
+    main_content = """
+#!/usr/bin/env python3
+# 量子Jesse交易系统主程序
+
+from quantum_jesse_integration import QuantumJesseIntegration
+from jesse_config import get_config
+
+def main():
+    \"\"\"主交易循环\"\"\"
+    print("启动量子Jesse交易系统...")
+    
+    # 创建集成实例
+    integration = QuantumJesseIntegration()
+    
+    # 主交易循环
+    try:
+        while True:
+            # 运行量子策略
+            result = integration.run_quantum_strategy('BTC-USDT', '5m')
+            print(f"策略执行结果: {result}")
+            
+            # 等待下一个周期
+            import time
+            time.sleep(300)  # 5分钟
+            
+    except KeyboardInterrupt:
+        print("系统正常退出")
+    except Exception as e:
+        print(f"系统异常: {e}")
+
+if __name__ == "__main__":
+    main()
+    """
+    
+    with open(f"{project_dir}/main.py", "w") as f:
+        f.write(main_content)
+    
+    # 生成requirements.txt
+    requirements = """
+jesse==0.30.0
+qiskit>=0.40.0
+numpy>=1.21.0
+pandas>=1.3.0
+ccxt>=3.0.0
+sqlite3
+psycopg2-binary  # 如果使用PostgreSQL
+pymysql          # 如果使用MySQL
+pymongo          # 如果使用MongoDB
+redis            # 如果使用Redis
+    """
+    
+    with open(f"{project_dir}/requirements.txt", "w") as f:
+        f.write(requirements)
+    
+    print(f"✅ 量子Jesse交易项目已创建: {project_dir}")
+    print("📁 项目结构:")
+    for root, dirs, files in os.walk(project_dir):
+        level = root.replace(project_dir, '').count(os.sep)
+        indent = ' ' * 2 * level
+        print(f"{indent}{os.path.basename(root)}/")
+        subindent = ' ' * 2 * (level + 1)
+        for file in files:
+            print(f"{subindent}{file}")
+    
+    return project_dir
+
+if __name__ == "__main__":
+    # 演示Jesse集成
+    integration = demonstrate_jesse_integration()
+    
+    # 创建完整项目
+    project_dir = create_quantum_jesse_project()
+    
+    print(f"\n🎉 集成完成！")
+    print("下一步:")
+    print("1. cd quantum_jesse_trader")
+    print("2. pip install -r requirements.txt") 
